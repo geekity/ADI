@@ -84,6 +84,12 @@ __host__ float* PCR::B_arr() {
 	return b;
 }
 
+__host__ void PCR::ADI_flip() {
+	int N_tmp = N;
+	N = S;
+	S = N_tmp;
+}
+
 /* Private Methods */
 
 /* Allocates device memory */

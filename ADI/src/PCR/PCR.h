@@ -54,6 +54,9 @@ public:
 	__host__ float* A2_arr();
 	__host__ float* A3_arr();
 	__host__ float* B_arr();
+
+	/* ADI direction reverse */
+	__host__ void ADI_flip();
 };
 
 /* Global solver function called from PCR Method PCR_solve(...) */

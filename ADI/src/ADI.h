@@ -15,18 +15,20 @@ private:
 	int N;
 	int S;
 
-	PCR* pcrh;		/* Parallel cyclic reduction solver for horizontal iteration*/
-	PCR* pcrv;		/* Parallel cyclic reduction solver for vertical iteration */
+	PCR* pcr;		/* Parallel cyclic reduction solver*/
 
 	float* h_phi_new; /* New value of phi after 2 double sweeps */
 	float* d_phi_new;
 	float* h_phi_bar; /* Value of phi after 1 double sweep of step size 2*dt */
 	float* d_phi_bar;
+
+	void check_arrays();
+	bool check_err(float* d_phi, float* dt, bool* accept);
 public:
 	ADI(int N_tmp, int S_tmp);
 	~ADI();
 
-	__host__ void adi_solver(float* d_phi, float* d_rho);
+	__host__ void adi_solver(float* h_phi, float* d_phi, float* d_rho);
 };
 
 /* calculate tridiagonal matrix A and RHS vector B */
@@ -36,7 +38,10 @@ __global__ void calcAB(float* A1, float* A2, float* A3, float* B, float* phi,
 __global__ void recalcB(float* B, float* phi, float* rho, float dt, float dh1,
 	float dh2, int N, int S);
 
+/* Check difference between iterations */
+__global__ void calc_dif_iter(float* phi_new, float* phi_old, float* phi_bar, int N, int S);
+
 /* Transpose density array */
-__global__ void density_transpose(float *iden, float *oden);
+__global__ void transpose(float *iden, float *oden);
 
 #endif /* ADI_H_ */
