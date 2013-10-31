@@ -67,7 +67,7 @@ using namespace std;
 #endif*/
 #define SHARE_X 8
 #define SHARE_Y 8
-#define TILE_WIDTH (SHARE_X >= SHARE_Y) ? SHARE_X : SHARE_Y
+#define TILE_WIDTH 8
 
 #define THREADS dim3(SHARE_X, SHARE_Y, 1)
 #define BLOCKS dim3((N_COLS + SHARE_X - 1)/SHARE_X, (N_ROWS + SHARE_Y - 1)/SHARE_Y, 1)

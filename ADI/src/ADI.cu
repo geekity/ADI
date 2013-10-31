@@ -16,13 +16,24 @@
 #include <algorithm>
 
 #include "ADI.h"
-#include "constants/constants.h"
+//#include "constants/constants.h"
 #include "constants/alloc.h"
 
 using namespace std;
 
 #define OUTPUT
-#define TOLL 1e-4
+#define TOLL 1e-5
+
+#define N_ROWS 6
+#define N_COLS 6
+
+#define SHARE_X 8
+#define SHARE_Y 8
+#define TILE_WIDTH 8
+
+#define THREADS dim3(SHARE_X, SHARE_Y, 1)
+#define BLOCKS dim3((N_COLS + SHARE_X - 1)/SHARE_X, (N_ROWS + SHARE_Y - 1)/SHARE_Y, 1)
+#define EPSILON0 8.85e-12f
 
 /* ADI class public methods */
 
@@ -36,6 +47,8 @@ ADI::ADI(int N_tmp, int S_tmp) {
 	check_return(cudaMalloc((float**)&d_phi_new, N*S*sizeof(float)));
 	h_phi_bar = (float*) safe_malloc(N*S*sizeof(float));
 	check_return(cudaMalloc((float**)&d_phi_bar, N*S*sizeof(float)));
+	check_return(cudaMalloc((float**)&phi_trans, N*S*sizeof(float)));
+	check_return(cudaMalloc((float**)&rho_trans, N*S*sizeof(float)));
 }
 
 ADI::~ADI() {
@@ -46,26 +59,41 @@ ADI::~ADI() {
 
 	check_return(cudaFree(d_phi_new));
 	check_return(cudaFree(d_phi_bar));
+	check_return(cudaFree(phi_trans));
+	check_return(cudaFree(rho_trans));
 }
 
-__host__ void ADI::adi_solver(float* h_phi, float* d_phi, float* d_rho) {
+__host__ void ADI::adi_solver(float* d_phi, float* d_rho) {
 	float dt = 1.0;
 	float dh1 = 1.0;
 	float dh2 = 1.0;
-	bool accept = true;
+	bool accept = false;
 
-	bool horizontal = true;
+	transpose<<<BLOCKS, THREADS>>>(d_rho, rho_trans, N, S);
+	cudaDeviceSynchronize();
+	check_return(cudaGetLastError());
 
-/*	do {
-		calcAB<<<S, N>>>(pcr->A1_arr(), pcr->A2_arr(), pcr->A3_arr(), pcr->B_arr(),
-				d_phi, d_rho, dt, dh1, dh2, N, S);
+	do {
+		if (accept) {
+			check_return(cudaMemcpy(d_phi, h_phi_new, N*S*sizeof(float), cudaMemcpyHostToDevice));
+		}
 
-		cudaDeviceSynchronize();
-		check_return(cudaGetLastError());
+		check_return(cudaMemcpy(d_phi_new, d_phi, N*S*sizeof(float), cudaMemcpyDeviceToDevice));
+		check_return(cudaMemcpy(d_phi_bar, d_phi, N*S*sizeof(float), cudaMemcpyDeviceToDevice));
 
-	} while (check_err(d_phi, &dt, &accept));*/
+		/* 2 double sweeps of 1*dt */
+		double_sweep(d_phi_new, d_rho, dt, dh1, dh2);
+		double_sweep(d_phi_new, d_rho, dt, dh1, dh2);
 
-	check_arrays();
+		check_return(cudaMemcpy(h_phi_new, d_phi_new, N*S*sizeof(float), cudaMemcpyDeviceToHost));
+
+		/* 1 double sweep of 2*dt */
+		double_sweep(d_phi_bar, d_rho, 2*dt, dh1, dh2);
+
+	} while (check_err(d_phi, &dt, &accept));
+
+	check_return(cudaMemcpy(d_phi, h_phi_new, N*S*sizeof(float), cudaMemcpyHostToDevice));
+//	check_arrays();
 
 	cudaDeviceSynchronize();
 }
@@ -166,6 +194,40 @@ bool ADI::check_err(float* d_phi, float* dt, bool* accept) {
 	return true;
 }
 
+void ADI::double_sweep(float* phi_new, float* rho, float dt,
+	float dh1, float dh2) {
+
+	/* vertical sweep */
+	pcr->ADI_flip(S, N);
+	calcAB<<<N, S>>>(pcr->A1_arr(), pcr->A2_arr(), pcr->A3_arr(), pcr->B_arr(),
+			phi_new, rho_trans, dt, dh2, dh1, S, N);
+	cudaDeviceSynchronize();
+	check_return(cudaGetLastError());
+
+	pcr->PCR_solve(phi_new);
+
+	transposes(phi_new);
+
+	/* horizontal sweep */
+	pcr->ADI_flip(N, S);
+	calcAB<<<S, N>>>(pcr->A1_arr(), pcr->A2_arr(), pcr->A3_arr(), pcr->B_arr(),
+			phi_new, rho, dt, dh1, dh2, N, S);
+	cudaDeviceSynchronize();
+	check_return(cudaGetLastError());
+
+	pcr->PCR_solve(phi_new);
+
+	transposes(phi_new);
+}
+
+void ADI::transposes(float* phi_new) {
+	transpose<<<BLOCKS, THREADS>>>(phi_new, phi_trans, N, S);
+	cudaDeviceSynchronize();
+	check_return(cudaGetLastError());
+
+	check_return(cudaMemcpy(phi_new, phi_trans, N*S*sizeof(float), cudaMemcpyDeviceToDevice));
+}
+
 /* Device functions */
 
 __global__ void calcAB(float* A1, float* A2, float* A3, float* B, float* phi,
@@ -209,13 +271,13 @@ __global__ void calc_dif_iter(float* phi_new, float* phi_old, float* phi_bar,
 	}
 }
 
-__global__ void transpose(float *iden, float *oden) {
+__global__ void transpose(float *iden, float *oden, int N, int S) {
 
 	__shared__ float tile[TILE_WIDTH][TILE_WIDTH];
 
 	int blockIdx_x, blockIdx_y;
 
-	if ((N_COLS-1) == (N_ROWS-1)) {
+	if (N == S) {
 		blockIdx_y = blockIdx.x;
 		blockIdx_x = (blockIdx.x+blockIdx.y) % gridDim.x;
 	} else {
@@ -226,15 +288,15 @@ __global__ void transpose(float *iden, float *oden) {
 
 	int tidx = threadIdx.x + blockIdx_x*TILE_WIDTH;
 	int tidy = threadIdx.y + blockIdx_y*TILE_WIDTH;
-	int index_in = tidx + tidy*(N_COLS-1);
+	int index_in = tidx + tidy*N;
 
 	for (int i = 0; i < (TILE_WIDTH+SHARE_Y-1); i += SHARE_Y) {
 		for (int j = 0; j < (TILE_WIDTH+SHARE_X-1); j += SHARE_X) {
-			if (((tidx+j < N_COLS-1)
-					&& (tidy+i < N_ROWS-1))
+			if (((tidx+j < N)
+					&& (tidy+i < S))
 					&& ((i+threadIdx.y < TILE_WIDTH)
 					&& (j+threadIdx.x < TILE_WIDTH))) {
-				tile[threadIdx.y+i][threadIdx.x+j] = iden[index_in + j + i*(N_COLS-1)];
+				tile[threadIdx.y+i][threadIdx.x+j] = iden[index_in + j + i*N];
 			}
 		}
 	}
@@ -243,15 +305,15 @@ __global__ void transpose(float *iden, float *oden) {
 
 	tidx = threadIdx.x + blockIdx_y*TILE_WIDTH;
 	tidy = threadIdx.y + blockIdx_x*TILE_WIDTH;
-	int index_out = tidx + tidy*(N_ROWS-1);
+	int index_out = tidx + tidy*S;
 
 	for (int i = 0; i < (TILE_WIDTH+SHARE_Y-1); i += SHARE_Y) {
 		for (int j = 0; j < (TILE_WIDTH+SHARE_X-1); j += SHARE_X) {
-			if (((tidx+j < N_ROWS-1)
-					&& (tidy+i < N_COLS-1))
+			if (((tidx+j < S)
+					&& (tidy+i < N))
 					&& ((i+threadIdx.y < TILE_WIDTH)
 					&& (j+threadIdx.x < TILE_WIDTH))) {
-				oden[index_out + j + i*(N_ROWS-1)] = tile[threadIdx.x+j][threadIdx.y+i];
+				oden[index_out + j + i*S] = tile[threadIdx.x+j][threadIdx.y+i];
 			}
 		}
 	}
@@ -283,7 +345,17 @@ int main() {
 
 	ADI* adi = new ADI(N, S);
 
-	adi->adi_solver(phi, d_phi, d_rho);
+	adi->adi_solver(d_phi, d_rho);
+
+	check_return(cudaMemcpy(phi, d_phi, N*S*sizeof(float), cudaMemcpyDeviceToHost));
+
+	for (int i = 0; i < S; i++) {
+		for (int j = 0; j < N; j++) {
+			cout << phi[i*N+j] << " ";
+		}
+		cout << endl;
+	}
+	cout << endl;
 
 	cudaFree(d_phi);
 	cudaFree(d_rho);

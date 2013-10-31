@@ -58,14 +58,18 @@ __host__ void PCR::PCR_solve(float* A1_tmp, float* A2_tmp, float* A3_tmp,
 	/* Launch solver here */
 
 	PCR_solver<<<S, CHUNK_MAX>>>(A1, A2, A3, b, N);
+	cudaDeviceSynchronize();
+	check_return(cudaGetLastError());
 
 	check_return(cudaMemcpy(x_tmp, b, S*N*sizeof(float), cudaMemcpyDeviceToHost));
 }
 
 __host__ void PCR::PCR_solve(float* x_tmp) {
 	PCR_solver<<<S, CHUNK_MAX>>>(A1, A2, A3, b, N);
+	cudaDeviceSynchronize();
+	check_return(cudaGetLastError());
 
-	check_return(cudaMemcpy(x_tmp, b, S*N*sizeof(float), cudaMemcpyDeviceToHost));
+	check_return(cudaMemcpy(x_tmp, b, S*N*sizeof(float), cudaMemcpyDeviceToDevice));
 }
 
 __host__ float* PCR::A1_arr() {
@@ -84,10 +88,9 @@ __host__ float* PCR::B_arr() {
 	return b;
 }
 
-__host__ void PCR::ADI_flip() {
-	int N_tmp = N;
-	N = S;
-	S = N_tmp;
+__host__ void PCR::ADI_flip(int N_tmp, int S_tmp) {
+	N = N_tmp;
+	S = S_tmp;
 }
 
 /* Private Methods */

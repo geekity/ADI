@@ -56,7 +56,7 @@ public:
 	__host__ float* B_arr();
 
 	/* ADI direction reverse */
-	__host__ void ADI_flip();
+	__host__ void ADI_flip(int N_tmp, int S_tmp);
 };
 
 /* Global solver function called from PCR Method PCR_solve(...) */
