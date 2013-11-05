@@ -64,6 +64,7 @@ __host__ void PCR::PCR_solve(float* A1_tmp, float* A2_tmp, float* A3_tmp,
 	check_return(cudaMemcpy(x_tmp, b, S*N*sizeof(float), cudaMemcpyDeviceToHost));
 }
 
+/* PCR solver for pre-seeded A matrix and B vector */
 __host__ void PCR::PCR_solve(float* x_tmp) {
 	PCR_solver<<<S, CHUNK_MAX>>>(A1, A2, A3, b, N);
 	cudaDeviceSynchronize();
@@ -71,6 +72,8 @@ __host__ void PCR::PCR_solve(float* x_tmp) {
 
 	check_return(cudaMemcpy(x_tmp, b, S*N*sizeof(float), cudaMemcpyDeviceToDevice));
 }
+
+/* Accessors for seeding A matrix and B vector */
 
 __host__ float* PCR::A1_arr() {
 	return A1;
@@ -88,6 +91,7 @@ __host__ float* PCR::B_arr() {
 	return b;
 }
 
+/* Direction reverse for use with ADI solver */
 __host__ void PCR::ADI_flip(int N_tmp, int S_tmp) {
 	N = N_tmp;
 	S = S_tmp;

@@ -16,24 +16,13 @@
 #include <algorithm>
 
 #include "ADI.h"
-//#include "constants/constants.h"
+#include "constants/constants.h"
 #include "constants/alloc.h"
 
 using namespace std;
 
-#define OUTPUT
+#define TESTING
 #define TOLL 1e-5
-
-#define N_ROWS 6
-#define N_COLS 6
-
-#define SHARE_X 8
-#define SHARE_Y 8
-#define TILE_WIDTH 8
-
-#define THREADS dim3(SHARE_X, SHARE_Y, 1)
-#define BLOCKS dim3((N_COLS + SHARE_X - 1)/SHARE_X, (N_ROWS + SHARE_Y - 1)/SHARE_Y, 1)
-#define EPSILON0 8.85e-12f
 
 /* ADI class public methods */
 
@@ -51,6 +40,7 @@ ADI::ADI(int N_tmp, int S_tmp) {
 	check_return(cudaMalloc((float**)&rho_trans, N*S*sizeof(float)));
 }
 
+/* Destructor */
 ADI::~ADI() {
 	delete pcr;
 
@@ -63,16 +53,20 @@ ADI::~ADI() {
 	check_return(cudaFree(rho_trans));
 }
 
+/* Actual DADI solver implementation */
 __host__ void ADI::adi_solver(float* d_phi, float* d_rho) {
+	/**/
 	float dt = 1.0;
 	float dh1 = 1.0;
 	float dh2 = 1.0;
-	bool accept = false;
+	bool accept = false;	/* bool to determine whether iteration was accepted */
 
+	/* finds the transpose of rho for building up of PCR solver RHS */
 	transpose<<<BLOCKS, THREADS>>>(d_rho, rho_trans, N, S);
 	cudaDeviceSynchronize();
 	check_return(cudaGetLastError());
 
+	/* loops until convergence is achieved */
 	do {
 		if (accept) {
 			check_return(cudaMemcpy(d_phi, h_phi_new, N*S*sizeof(float), cudaMemcpyHostToDevice));
@@ -93,13 +87,13 @@ __host__ void ADI::adi_solver(float* d_phi, float* d_rho) {
 	} while (check_err(d_phi, &dt, &accept));
 
 	check_return(cudaMemcpy(d_phi, h_phi_new, N*S*sizeof(float), cudaMemcpyHostToDevice));
-//	check_arrays();
 
 	cudaDeviceSynchronize();
 }
 
 /* ADI class private methods */
 
+/* Check PCR matrix seeding from kerne functions */
 void ADI::check_arrays() {
 	float* A1 = (float*) safe_malloc(N*S*sizeof(float));
 	float* A2 = (float*) safe_malloc(N*S*sizeof(float));
@@ -153,6 +147,7 @@ void ADI::check_arrays() {
 	safe_free(B);
 }
 
+/* Checks solution convergence and adjusts dt */
 bool ADI::check_err(float* d_phi, float* dt, bool* accept) {
 	calc_dif_iter<<<S, N>>>(d_phi_new, d_phi, d_phi_bar, N, S);
 
@@ -194,32 +189,43 @@ bool ADI::check_err(float* d_phi, float* dt, bool* accept) {
 	return true;
 }
 
+/* Single double sweep of ADI solver. Input rho & phi are expected to be row sorted */
+/* (i.e. x = column, y = row, index_A = y*N + x)                                    */
 void ADI::double_sweep(float* phi_new, float* rho, float dt,
 	float dh1, float dh2) {
 
-	/* vertical sweep */
-	pcr->ADI_flip(S, N);
+	/* system solved along vertical */
+	pcr->ADI_flip(S, N);	// sets up PCR # of equations and # of systems
+
+	// Sets up matrix A and vector B for PCR solver
 	calcAB<<<N, S>>>(pcr->A1_arr(), pcr->A2_arr(), pcr->A3_arr(), pcr->B_arr(),
 			phi_new, rho_trans, dt, dh2, dh1, S, N);
 	cudaDeviceSynchronize();
 	check_return(cudaGetLastError());
 
+	// solve the mesh system
 	pcr->PCR_solve(phi_new);
 
+	// transpose phi for setting up vector B for next sweep
 	transposes(phi_new);
 
-	/* horizontal sweep */
-	pcr->ADI_flip(N, S);
+	/* system solved along horizontal */
+	pcr->ADI_flip(N, S);	// sets up PCR # of equations and # of systems
+
+	// Sets up matrix A and vector B for PCR solver
 	calcAB<<<S, N>>>(pcr->A1_arr(), pcr->A2_arr(), pcr->A3_arr(), pcr->B_arr(),
 			phi_new, rho, dt, dh1, dh2, N, S);
 	cudaDeviceSynchronize();
 	check_return(cudaGetLastError());
 
+	// solve the mesh system
 	pcr->PCR_solve(phi_new);
 
+	// transpose phi to return to original orientation
 	transposes(phi_new);
 }
 
+/* transposes phi "in place" (not really in place, just a wrapper method) */
 void ADI::transposes(float* phi_new) {
 	transpose<<<BLOCKS, THREADS>>>(phi_new, phi_trans, N, S);
 	cudaDeviceSynchronize();
@@ -230,6 +236,7 @@ void ADI::transposes(float* phi_new) {
 
 /* Device functions */
 
+/* Set up the A matrix and B vector for 2 dimensional Poisson equation */
 __global__ void calcAB(float* A1, float* A2, float* A3, float* B, float* phi,
 	float* rho, float dt, float dh1, float dh2, int N, int S) {
 
@@ -246,6 +253,7 @@ __global__ void calcAB(float* A1, float* A2, float* A3, float* B, float* phi,
 	}
 }
 
+/* Calculate new B vector only (case if dt is constant) */
 __global__ void recalcB(float* B, float* phi, float* rho, float dt, float dh1,
 	float dh2, int N, int S) {
 	int tid1 = blockIdx.x*N + threadIdx.x;
@@ -271,12 +279,15 @@ __global__ void calc_dif_iter(float* phi_new, float* phi_old, float* phi_bar,
 	}
 }
 
+/* Matrix transpose (see G. Reutsch, P. Micikevicius, Optimizing matrix transpose in CUDA) */
 __global__ void transpose(float *iden, float *oden, int N, int S) {
 
-	__shared__ float tile[TILE_WIDTH][TILE_WIDTH];
+	// Dimension of tile adjusted to avoid bank conflicts
+	__shared__ float tile[TILE_WIDTH][TILE_WIDTH+1];
 
 	int blockIdx_x, blockIdx_y;
 
+	// Use coordinates in diagonal context to avoid partition camping
 	if (N == S) {
 		blockIdx_y = blockIdx.x;
 		blockIdx_x = (blockIdx.x+blockIdx.y) % gridDim.x;
@@ -290,6 +301,7 @@ __global__ void transpose(float *iden, float *oden, int N, int S) {
 	int tidy = threadIdx.y + blockIdx_y*TILE_WIDTH;
 	int index_in = tidx + tidy*N;
 
+	// copy data to tile
 	for (int i = 0; i < (TILE_WIDTH+SHARE_Y-1); i += SHARE_Y) {
 		for (int j = 0; j < (TILE_WIDTH+SHARE_X-1); j += SHARE_X) {
 			if (((tidx+j < N)
@@ -307,6 +319,7 @@ __global__ void transpose(float *iden, float *oden, int N, int S) {
 	tidy = threadIdx.y + blockIdx_x*TILE_WIDTH;
 	int index_out = tidx + tidy*S;
 
+	// insert transpose into output array
 	for (int i = 0; i < (TILE_WIDTH+SHARE_Y-1); i += SHARE_Y) {
 		for (int j = 0; j < (TILE_WIDTH+SHARE_X-1); j += SHARE_X) {
 			if (((tidx+j < S)
@@ -319,7 +332,9 @@ __global__ void transpose(float *iden, float *oden, int N, int S) {
 	}
 }
 
-#ifdef OUTPUT
+/* test main */
+
+#ifdef TESTING
 
 int main() {
 	cout << "Hello World!" << endl;

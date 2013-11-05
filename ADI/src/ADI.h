@@ -3,6 +3,28 @@
  *
  *  Created on: 22 Oct 2013
  *      Author: geekity
+ *
+ *      This class is a GPU dynamic ADI solver for the 2 dimensional Poisson equation
+ *      in time-differenced parabolic form:
+ *
+ *      d2f/dx2 + d2f/dy2 = df/dt - r/EPSILON0
+ *
+ *      By solving this equation for steady state, we remove the time derivative
+ *      and the equation becomes the elliptic equation. The dt value is not actual
+ *      timestep in PIC simulation, it is only a convergence parameter.
+ *
+ *      After rearranging into a form Ax = B, LHS consists of f in the direction
+ *      currently being solved and RHS contains source term and f solutions from
+ *      lines above.
+ *
+ *      More information on the procedure is given in:
+ *      * W. F. Ames, Numerical Methods For Partial Differential Equations, 1977 Academic Press, Inc.
+ *      * S. Doss, K. Miller, Dynamic ADI Methods for Elliptic Equations, SIAM J. Numer. Anal.,
+ *        vol. 16, No. 5, October 1979
+ *      * V. Vahedi, G. DiPeso, Simultaneous Potential and Circuit Solution for Two-Dimensional Bounded
+ *        Plasma Simulation Codes, Jouranl of Computational Physics 131, 149-163, 1997
+ *      * Z. Wei, B. Jang, Y. Zhang, Y. Jia, Parallelizing Alternating Direction Implicit Solver on
+ *        GPUs, Procedia Computer Science 18 (2013) 389-398
  */
 
 #ifndef ADI_H_
@@ -12,8 +34,8 @@
 
 class ADI {
 private:
-	int N;
-	int S;
+	int N;	/* # of equations */
+	int S;	/* # of systems of equations */
 
 	PCR* pcr;		/* Parallel cyclic reduction solver*/
 
@@ -41,6 +63,7 @@ public:
 __global__ void calcAB(float* A1, float* A2, float* A3, float* B, float* phi,
 	float* rho, float dt, float dh1, float dh2, int N, int S);
 
+/* Calculate new B vector only (case if dt is constant) */
 __global__ void recalcB(float* B, float* phi, float* rho, float dt, float dh1,
 	float dh2, int N, int S);
 
