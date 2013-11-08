@@ -41,8 +41,9 @@ private:
 
 	float* h_phi_new; /* New value of phi after 2 double sweeps */
 	float* d_phi_new;
-	float* h_phi_bar; /* Value of phi after 1 double sweep of step size 2*dt */
-	float* d_phi_bar;
+	float* d_phi_bar; /* Value of phi after 1 double sweep of step size 2*dt */
+	float* d_u; /* Old value of phi for conversion checking */
+	float* h_arr; /* Reduction helper array */
 
 	float* phi_trans; /* helper array for transpose phi */
 	float* rho_trans; /* helper array for transpose rho*/
@@ -52,6 +53,8 @@ private:
 	void double_sweep(float* phi_new, float* rho, float dt,
 		float dh1, float dh2);
 	void transposes(float* phi_new);
+	float my_reduction(float* d_arr);
+	void assert_notnan(float* d_arr);
 public:
 	ADI(int N_tmp, int S_tmp);
 	~ADI();
@@ -72,5 +75,8 @@ __global__ void calc_dif_iter(float* phi_new, float* phi_old, float* phi_bar, in
 
 /* Transpose density array */
 __global__ void transpose(float *iden, float *oden, int N, int S);
+
+/* partial reduction in shared memory */
+__global__ void shared_reduction(float* arr, int size);
 
 #endif /* ADI_H_ */

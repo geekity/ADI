@@ -7,6 +7,8 @@
 
 #include <iostream>
 #include <cstdlib>
+#include <cmath>
+#include <cassert>
 
 #include <thrust/host_vector.h>
 #include <thrust/device_vector.h>
@@ -23,6 +25,7 @@ using namespace std;
 
 #define TESTING
 #define TOLL 1e-5
+#define CHUNK_MAX 256
 
 /* ADI class public methods */
 
@@ -33,9 +36,10 @@ ADI::ADI(int N_tmp, int S_tmp) {
 	pcr = new PCR(N, S);
 
 	h_phi_new = (float*) safe_malloc(N*S*sizeof(float));
+	h_arr = (float*) safe_malloc(N*S*sizeof(float));
 	check_return(cudaMalloc((float**)&d_phi_new, N*S*sizeof(float)));
-	h_phi_bar = (float*) safe_malloc(N*S*sizeof(float));
 	check_return(cudaMalloc((float**)&d_phi_bar, N*S*sizeof(float)));
+	check_return(cudaMalloc((float**)&d_u, N*S*sizeof(float)));
 	check_return(cudaMalloc((float**)&phi_trans, N*S*sizeof(float)));
 	check_return(cudaMalloc((float**)&rho_trans, N*S*sizeof(float)));
 }
@@ -45,10 +49,11 @@ ADI::~ADI() {
 	delete pcr;
 
 	safe_free(h_phi_new);
-	safe_free(h_phi_bar);
+	safe_free(h_arr);
 
 	check_return(cudaFree(d_phi_new));
 	check_return(cudaFree(d_phi_bar));
+	check_return(cudaFree(d_u));
 	check_return(cudaFree(phi_trans));
 	check_return(cudaFree(rho_trans));
 }
@@ -149,22 +154,26 @@ void ADI::check_arrays() {
 
 /* Checks solution convergence and adjusts dt */
 bool ADI::check_err(float* d_phi, float* dt, bool* accept) {
-	calc_dif_iter<<<S, N>>>(d_phi_new, d_phi, d_phi_bar, N, S);
+	check_return(cudaMemcpy(d_u, d_phi, N*S*sizeof(float), cudaMemcpyDeviceToDevice));
+
+	calc_dif_iter<<<S, N>>>(d_phi_new, d_u, d_phi_bar, N, S);
 
 	cudaDeviceSynchronize();
 	check_return(cudaGetLastError());
 
-	thrust::device_ptr<float> t_phi_new_ptr(d_phi_new);
-	thrust::device_vector<float> t_phi_new(t_phi_new_ptr, t_phi_new_ptr+N*S);
-	thrust::device_ptr<float> t_phi_bar_ptr(d_phi_bar);
-	thrust::device_vector<float> t_phi_bar(t_phi_bar_ptr, t_phi_bar_ptr+N*S);
+	float tp_top = my_reduction(d_phi_bar);
+	float tp_bottom = my_reduction(d_phi_new);
+	float tp_u = my_reduction(d_u);
 
-	float tp_top = thrust::reduce(t_phi_bar.begin(), t_phi_bar.end(),
-			(float) 0, thrust::plus<float>());
-	float tp_bottom = thrust::reduce(t_phi_new.begin(), t_phi_bar.end(),
-			(float) 0, thrust::plus<float>());
+	tp_top = sqrt(tp_top);
+	tp_bottom = sqrt(tp_bottom);
+	tp_u = sqrt(tp_u);
 
-	if (tp_bottom < TOLL) return false;
+	assert(tp_top==tp_top);
+	assert(tp_bottom==tp_bottom);
+	assert(tp_u==tp_u);
+
+	if (tp_bottom/tp_u < TOLL) return false;
 
 	float tp = tp_top/tp_bottom;
 	if (tp <= 0.05) {
@@ -234,6 +243,31 @@ void ADI::transposes(float* phi_new) {
 	check_return(cudaMemcpy(phi_new, phi_trans, N*S*sizeof(float), cudaMemcpyDeviceToDevice));
 }
 
+/* Sum an array */
+float ADI::my_reduction(float* d_arr)	{
+	int B = (N*S+CHUNK_MAX-1)/CHUNK_MAX;
+	shared_reduction<<<B, CHUNK_MAX>>>(d_arr, N*S);
+
+	cudaDeviceSynchronize();
+	check_return(cudaGetLastError());
+
+	check_return(cudaMemcpy(h_arr, d_arr, N*S*sizeof(float), cudaMemcpyDeviceToHost));
+
+	for (int i = CHUNK_MAX; i < S*N; i += CHUNK_MAX) {
+		h_arr[0] += h_arr[i];
+	}
+	return h_arr[0];
+}
+
+/* assert array does not consist of NaN */
+void ADI::assert_notnan(float* d_arr) {
+	check_return(cudaMemcpy(h_arr, d_arr, N*S*sizeof(float), cudaMemcpyDeviceToHost));
+	for (int i = 0; i < N*S; i++) {
+		assert(h_arr[i] == h_arr[i]);
+	}
+}
+
+
 /* Device functions */
 
 /* Set up the A matrix and B vector for 2 dimensional Poisson equation */
@@ -276,6 +310,7 @@ __global__ void calc_dif_iter(float* phi_new, float* phi_old, float* phi_bar,
 
 		phi_bar[tid] *= phi_bar[tid];
 		phi_new[tid] *= phi_new[tid];
+		phi_old[tid] *= phi_old[tid];
 	}
 }
 
@@ -332,6 +367,30 @@ __global__ void transpose(float *iden, float *oden, int N, int S) {
 	}
 }
 
+/* partial reduction in shared memory */
+__global__ void shared_reduction(float* arr, int size) {
+	__shared__ float a[CHUNK_MAX];
+	int tid = blockIdx.x*blockDim.x + threadIdx.x;
+
+	if (tid < size) {
+		a[threadIdx.x] = arr[tid];
+
+		__syncthreads();
+
+		int step = CHUNK_MAX/2;
+
+		while (step > 0) {
+			if ((threadIdx.x < step) && (tid+step < size))
+				a[threadIdx.x] += a[threadIdx.x+step];
+			__syncthreads();
+			step /= 2;
+		}
+
+		if (threadIdx.x == 0) arr[tid] = a[threadIdx.x];
+		else arr[tid] = 0.0;
+	}
+}
+
 /* test main */
 
 #ifdef TESTING
@@ -339,15 +398,16 @@ __global__ void transpose(float *iden, float *oden, int N, int S) {
 int main() {
 	cout << "Hello World!" << endl;
 
-	int N = 5;
-	int S = 5;
+	int N = 63;
+	int S = 63;
+	ADI* adi = new ADI(N, S);
 
-	float phi[] = {1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
-			1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0};
-	float rho[] = {EPSILON0, EPSILON0, EPSILON0, EPSILON0, EPSILON0, EPSILON0,
-			EPSILON0, EPSILON0, EPSILON0, EPSILON0, EPSILON0, EPSILON0, EPSILON0,
-			EPSILON0, EPSILON0, EPSILON0, EPSILON0, EPSILON0, EPSILON0, EPSILON0,
-			EPSILON0, EPSILON0, EPSILON0, EPSILON0, EPSILON0};
+	float phi[N*S];
+	float rho[N*S];
+	for (int i = 0; i < N*S; i++) {
+		phi[i] = 1.0;
+		rho[i] = -EPSILON0;
+	}
 
 	float* d_phi;
 	float* d_rho;
@@ -357,8 +417,6 @@ int main() {
 
 	check_return(cudaMemcpy(d_phi, phi, N*S*sizeof(float), cudaMemcpyHostToDevice));
 	check_return(cudaMemcpy(d_rho, rho, N*S*sizeof(float), cudaMemcpyHostToDevice));
-
-	ADI* adi = new ADI(N, S);
 
 	adi->adi_solver(d_phi, d_rho);
 

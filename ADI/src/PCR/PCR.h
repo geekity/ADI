@@ -67,7 +67,7 @@ __global__ void PCR_solver(float* A1, float* A2, float* A3, float* B,
 __device__ void PCR_reduce(float* A1, float* A2, float* A3, float* B,
 	int N, int chunks, int delta, int sys_offset);
 
-/* Solves the 1 unknown system */
+/* Solves the 1 unknown system (obsolete) */
 __device__ void PCR_solve_eqn(float* A2, float* B, int N, int chunks,
 	int sys_offset);
 

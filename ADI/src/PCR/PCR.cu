@@ -11,6 +11,10 @@
 #include <cstdlib>
 #include <cmath>
 
+#include <thrust/device_vector.h>
+#include <thrust/host_vector.h>
+#include <thrust/reduce.h>
+
 #include "PCR.h"
 #include "../constants/alloc.h"
 #include "../constants/cutil_math.h"
@@ -20,7 +24,6 @@ using namespace std;
 #define CHUNK_MAX 256
 #define CR_BUFF_MAX 128 // set statically since my current card doesn't support dynamic memory
 						  // allocation
-
 #undef TESTING
 
 /* Constructor */
@@ -127,15 +130,11 @@ __global__ void PCR_solver(float* A1, float* A2, float* A3, float* B,
 	int delta = 1;
 	int sys_offset = blockIdx.x*N;
 
-	int cycles = ceil(log2f(N));
-
-	for (int i = 0; i < cycles; i++) {
+	while (delta < N) {
 		PCR_reduce(A1, A2, A3, B, N, chunks, delta, sys_offset);
 		delta *= 2;
 		__syncthreads();
 	}
-
-	PCR_solve_eqn(A2, B, N, chunks, sys_offset);
 }
 
 /* Device functions */
@@ -182,6 +181,7 @@ __device__ void PCR_reduce(float* A1, float* A2, float* A3, float* B,
 			eqn2.x = eqn1[i].x;
 			eqn2.z = eqn3.z;
 			eqn2.w += eqn1[i].w + eqn3.w;
+			eqn2 /= eqn2.y;
 			A1[id] = eqn2.x;
 			A2[id] = eqn2.y;
 			A3[id] = eqn2.z;
@@ -190,7 +190,7 @@ __device__ void PCR_reduce(float* A1, float* A2, float* A3, float* B,
 	}
 }
 
-/* Solves the 1 unknown system */
+/* Solves the 1 unknown system (obsolete) */
 __device__ void PCR_solve_eqn(float* A2, float* B, int N, int chunks,
 	int sys_offset) {
 	for (int i = 0; i < chunks; i++) {
@@ -209,14 +209,28 @@ int main()
 	cout << "Hello World!" << endl;
 	cout << "This is PCR solver!" << endl;
 
-	int N = 8;
-	int S = 2;
+	int N = 64;
+	int S = 1;
 
-	float A1 [] = {0.0, 3.0, 2.0, 1.0, 6.0, -7.0, 11.0, -1.0, 0.0, 3.0, 2.0, 1.0, 6.0, -7.0, 11.0, -1.0};
-	float A2 [] = {1.0, 4.0, -1.0, -2.0, 11, -5.0, -2.0, 1.0, 1.0, 4.0, -1.0, -2.0, 11, -5.0, -2.0, 1.0};
-	float A3 [] = {7.0, 1.0, 7.0, 5.0, 0.0, 4.0, -4.0, 8.0, 7.0, 1.0, 7.0, 5.0, 0.0, 4.0, -4.0, 8.0};
-	float B [] = {1.0, 4.0, -1.0, 7.0, 18.0, 11.0, 2.0, -3.0, 1.0, 4.0, -1.0, 7.0, 18.0, 11.0, 2.0, -3.0};
-	float X [] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+	float A1 [N*S];
+	float A2 [N*S];
+	float A3 [N*S];
+	float B [N*S];
+	float X [N*S];
+
+	for (int i = 0; i < N*S; i++) {
+		A1[i] = 1.0;
+		A2[i] = -2.0;
+		A3[i] = 1.0;
+		B[i] = 1.0;
+		X[i] = 0.0;
+	}
+	for (int i = 0; i < N*S; i+=N) {
+		A1[i] = 0.0;
+	}
+	for (int i = N-1; i < N*S; i+=N) {
+		A3[i] = 0.0;
+	}
 
 	for (int k = 0; k < S; k++) {
 		for (int i = 0; i < N; i++) {
