@@ -173,7 +173,7 @@ bool ADI::check_err(float* d_phi, float* dt, bool* accept) {
 	assert(tp_bottom==tp_bottom);
 	assert(tp_u==tp_u);
 
-	if (tp_bottom/tp_u < TOLL) return false;
+	if (tp_u < TOLL) return false;
 
 	float tp = tp_top/tp_bottom;
 	if (tp <= 0.05) {
@@ -311,6 +311,7 @@ __global__ void calc_dif_iter(float* phi_new, float* phi_old, float* phi_bar,
 		phi_bar[tid] *= phi_bar[tid];
 		phi_new[tid] *= phi_new[tid];
 		phi_old[tid] *= phi_old[tid];
+		phi_old[tid] = phi_new[tid]/phi_old[tid];
 	}
 }
 
