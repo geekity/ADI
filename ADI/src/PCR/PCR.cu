@@ -36,10 +36,10 @@ PCR::PCR(int N_tmp, int S_tmp) {
 
 	N = N_tmp;
 	S = S_tmp;
-	check_return(cudaMalloc((float**) &A1, S*N*sizeof(float)));
-	check_return(cudaMalloc((float**) &A2, S*N*sizeof(float)));
-	check_return(cudaMalloc((float**) &A3, S*N*sizeof(float)));
-	check_return(cudaMalloc((float**) &b, S*N*sizeof(float)));
+	check_return(cudaMalloc((TYPE_VAR**) &A1, S*N*sizeof(TYPE_VAR)));
+	check_return(cudaMalloc((TYPE_VAR**) &A2, S*N*sizeof(TYPE_VAR)));
+	check_return(cudaMalloc((TYPE_VAR**) &A3, S*N*sizeof(TYPE_VAR)));
+	check_return(cudaMalloc((TYPE_VAR**) &b, S*N*sizeof(TYPE_VAR)));
 }
 
 /* Destructor */
@@ -53,8 +53,8 @@ PCR::~PCR() {
 /* Public Methods */
 
 /* PCR solver method */
-__host__ void PCR::PCR_solve(float* A1_tmp, float* A2_tmp, float* A3_tmp,
-	float* b_tmp, float* x_tmp) {
+__host__ void PCR::PCR_solve(TYPE_VAR* A1_tmp, TYPE_VAR* A2_tmp, TYPE_VAR* A3_tmp,
+	TYPE_VAR* b_tmp, TYPE_VAR* x_tmp) {
 
 	PCR_init(A1_tmp, A2_tmp, A3_tmp, b_tmp);
 
@@ -64,33 +64,33 @@ __host__ void PCR::PCR_solve(float* A1_tmp, float* A2_tmp, float* A3_tmp,
 	cudaDeviceSynchronize();
 	check_return(cudaGetLastError());
 
-	check_return(cudaMemcpy(x_tmp, b, S*N*sizeof(float), cudaMemcpyDeviceToHost));
+	check_return(cudaMemcpy(x_tmp, b, S*N*sizeof(TYPE_VAR), cudaMemcpyDeviceToHost));
 }
 
 /* PCR solver for pre-seeded A matrix and B vector */
-__host__ void PCR::PCR_solve(float* x_tmp) {
+__host__ void PCR::PCR_solve(TYPE_VAR* x_tmp) {
 	PCR_solver<<<S, CHUNK_MAX>>>(A1, A2, A3, b, N);
 	cudaDeviceSynchronize();
 	check_return(cudaGetLastError());
 
-	check_return(cudaMemcpy(x_tmp, b, S*N*sizeof(float), cudaMemcpyDeviceToDevice));
+	check_return(cudaMemcpy(x_tmp, b, S*N*sizeof(TYPE_VAR), cudaMemcpyDeviceToDevice));
 }
 
 /* Accessors for seeding A matrix and B vector */
 
-__host__ float* PCR::A1_arr() {
+__host__ TYPE_VAR* PCR::A1_arr() {
 	return A1;
 }
 
-__host__ float* PCR::A2_arr() {
+__host__ TYPE_VAR* PCR::A2_arr() {
 	return A2;
 }
 
-__host__ float* PCR::A3_arr() {
+__host__ TYPE_VAR* PCR::A3_arr() {
 	return A3;
 }
 
-__host__ float* PCR::B_arr() {
+__host__ TYPE_VAR* PCR::B_arr() {
 	return b;
 }
 
@@ -103,27 +103,27 @@ __host__ void PCR::ADI_flip(int N_tmp, int S_tmp) {
 /* Private Methods */
 
 /* Allocates device memory */
-__host__ void PCR::PCR_init(float* A1_tmp, float* A2_tmp, float* A3_tmp,
-		float* b_tmp) {
-	check_return(cudaMemcpy(A1, A1_tmp, S*N*sizeof(float), cudaMemcpyHostToDevice));
-	check_return(cudaMemcpy(A2, A2_tmp, S*N*sizeof(float), cudaMemcpyHostToDevice));
-	check_return(cudaMemcpy(A3, A3_tmp, S*N*sizeof(float), cudaMemcpyHostToDevice));
-	check_return(cudaMemcpy(b, b_tmp, S*N*sizeof(float), cudaMemcpyHostToDevice));
+__host__ void PCR::PCR_init(TYPE_VAR* A1_tmp, TYPE_VAR* A2_tmp, TYPE_VAR* A3_tmp,
+		TYPE_VAR* b_tmp) {
+	check_return(cudaMemcpy(A1, A1_tmp, S*N*sizeof(TYPE_VAR), cudaMemcpyHostToDevice));
+	check_return(cudaMemcpy(A2, A2_tmp, S*N*sizeof(TYPE_VAR), cudaMemcpyHostToDevice));
+	check_return(cudaMemcpy(A3, A3_tmp, S*N*sizeof(TYPE_VAR), cudaMemcpyHostToDevice));
+	check_return(cudaMemcpy(b, b_tmp, S*N*sizeof(TYPE_VAR), cudaMemcpyHostToDevice));
 }
 
 /* Copies reduced matrix A' to host memory A for testing purposes */
-__host__ void PCR::PCR_A_tester(float* A1_tmp, float* A2_tmp, float* A3_tmp,
-	float* b_tmp) {
-	check_return(cudaMemcpy(A1_tmp, A1, S*N*sizeof(float), cudaMemcpyDeviceToHost));
-	check_return(cudaMemcpy(A2_tmp, A2, S*N*sizeof(float), cudaMemcpyDeviceToHost));
-	check_return(cudaMemcpy(A3_tmp, A3, S*N*sizeof(float), cudaMemcpyDeviceToHost));
-	check_return(cudaMemcpy(b_tmp, b, S*N*sizeof(float), cudaMemcpyDeviceToHost));
+__host__ void PCR::PCR_A_tester(TYPE_VAR* A1_tmp, TYPE_VAR* A2_tmp, TYPE_VAR* A3_tmp,
+	TYPE_VAR* b_tmp) {
+	check_return(cudaMemcpy(A1_tmp, A1, S*N*sizeof(TYPE_VAR), cudaMemcpyDeviceToHost));
+	check_return(cudaMemcpy(A2_tmp, A2, S*N*sizeof(TYPE_VAR), cudaMemcpyDeviceToHost));
+	check_return(cudaMemcpy(A3_tmp, A3, S*N*sizeof(TYPE_VAR), cudaMemcpyDeviceToHost));
+	check_return(cudaMemcpy(b_tmp, b, S*N*sizeof(TYPE_VAR), cudaMemcpyDeviceToHost));
 }
 
 /* Global functions */
 
 /* Global solver function called from PCR Method PCR_solve(...) */
-__global__ void PCR_solver(float* A1, float* A2, float* A3, float* B,
+__global__ void PCR_solver(TYPE_VAR* A1, TYPE_VAR* A2, TYPE_VAR* A3, TYPE_VAR* B,
 	int N) {
 
 	int chunks = (N + CHUNK_MAX - 1)/CHUNK_MAX;
@@ -140,10 +140,10 @@ __global__ void PCR_solver(float* A1, float* A2, float* A3, float* B,
 /* Device functions */
 
 /* Carries reduction on the system for a specified distance between equations (delta) */
-__device__ void PCR_reduce(float* A1, float* A2, float* A3, float* B,
+__device__ void PCR_reduce(TYPE_VAR* A1, TYPE_VAR* A2, TYPE_VAR* A3, TYPE_VAR* B,
 	int N, int chunks, int delta, int sys_offset) {
 
-	float4 eqn1[CR_BUFF_MAX];
+	double4 eqn1[CR_BUFF_MAX];
 
 	/* Fetch top line values that will get overwritten on chunk boundaries */
 	for (int i = 0; i < chunks; i++) {
@@ -151,8 +151,8 @@ __device__ void PCR_reduce(float* A1, float* A2, float* A3, float* B,
 		if (eqn_num < N) {
 			int id = sys_offset + eqn_num;
 			eqn1[i] = (eqn_num-delta >= 0) ?
-				make_float4(A1[id-delta], A2[id-delta], A3[id-delta], B[id-delta]) :
-				make_float4(0.0);
+				make_double4(A1[id-delta], A2[id-delta], A3[id-delta], B[id-delta]) :
+				make_double4(0.0);
 		}
 	}
 
@@ -162,16 +162,16 @@ __device__ void PCR_reduce(float* A1, float* A2, float* A3, float* B,
 		if (eqn_num < N) {
 			int id = sys_offset + eqn_num;
 
-			float4 eqn2 = make_float4(A1[id], A2[id], A3[id], B[id]);
+			double4 eqn2 = make_double4(A1[id], A2[id], A3[id], B[id]);
 
-			float4 eqn3 = (eqn_num+delta < N) ?
-				make_float4(A1[id+delta], A2[id+delta], A3[id+delta], B[id+delta]) :
-				make_float4(0.0);
+			double4 eqn3 = (eqn_num+delta < N) ?
+				make_double4(A1[id+delta], A2[id+delta], A3[id+delta], B[id+delta]) :
+				make_double4(0.0);
 
 			__syncthreads();
 
-			float l2 = eqn2.x; float Lam1 = (eqn_num-delta >= 0) ? eqn1[i].y : 1.0;
-			float m2 = eqn2.z; float Lam3 = (eqn_num+delta < N) ? eqn3.y : 1.0;
+			TYPE_VAR l2 = eqn2.x; TYPE_VAR Lam1 = (eqn_num-delta >= 0) ? eqn1[i].y : 1.0;
+			TYPE_VAR m2 = eqn2.z; TYPE_VAR Lam3 = (eqn_num+delta < N) ? eqn3.y : 1.0;
 
 			eqn1[i] *= (l2*Lam3);
 			eqn2 *= (-Lam1*Lam3);
@@ -191,7 +191,7 @@ __device__ void PCR_reduce(float* A1, float* A2, float* A3, float* B,
 }
 
 /* Solves the 1 unknown system (obsolete) */
-__device__ void PCR_solve_eqn(float* A2, float* B, int N, int chunks,
+__device__ void PCR_solve_eqn(TYPE_VAR* A2, TYPE_VAR* B, int N, int chunks,
 	int sys_offset) {
 	for (int i = 0; i < chunks; i++) {
 		int eqn_num = i*CHUNK_MAX + threadIdx.x;
@@ -212,11 +212,11 @@ int main()
 	int N = 64;
 	int S = 1;
 
-	float A1 [N*S];
-	float A2 [N*S];
-	float A3 [N*S];
-	float B [N*S];
-	float X [N*S];
+	TYPE_VAR A1 [N*S];
+	TYPE_VAR A2 [N*S];
+	TYPE_VAR A3 [N*S];
+	TYPE_VAR B [N*S];
+	TYPE_VAR X [N*S];
 
 	for (int i = 0; i < N*S; i++) {
 		A1[i] = 1.0;

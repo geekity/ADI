@@ -22,21 +22,23 @@
 #ifndef PCR_H_
 #define PCR_H_
 
+#define TYPE_VAR float
+
 class PCR {
 private:
 	int N;	/* system dimension */
 	int S;
-	float* A1;	/* below diagonal in tridiagonal system A */
-	float* A2;	/* diagonal of tridiagonal system A */
-	float* A3;	/* above diagonal in tridiagonal system A */
-	float* b;	/* source vector */
+	TYPE_VAR* A1;	/* below diagonal in tridiagonal system A */
+	TYPE_VAR* A2;	/* diagonal of tridiagonal system A */
+	TYPE_VAR* A3;	/* above diagonal in tridiagonal system A */
+	TYPE_VAR* b;	/* source vector */
 
 	/* Allocates device memory */
-	__host__ void PCR_init(float* A1_tmp, float* A2_tmp, float* A3_tmp,
-		float* b_tmp);
+	__host__ void PCR_init(TYPE_VAR* A1_tmp, TYPE_VAR* A2_tmp, TYPE_VAR* A3_tmp,
+		TYPE_VAR* b_tmp);
 	/* Copies reduced matrix A' to host memory A for testing purposes */
-	__host__ void PCR_A_tester(float* A1_tmp, float* A2_tmp, float* A3_tmp,
-		float* b_tmp);
+	__host__ void PCR_A_tester(TYPE_VAR* A1_tmp, TYPE_VAR* A2_tmp, TYPE_VAR* A3_tmp,
+		TYPE_VAR* b_tmp);
 public:
 	/* Constructors */
 	PCR(int N_tmp, int S_tmp);
@@ -45,30 +47,30 @@ public:
 	virtual ~PCR();
 
 	/* PCR solver method */
-	__host__ void PCR_solve(float* A1_tmp, float* A2_tmp, float* A3_tmp,
-		float* b_tmp, float* x_tmp);
-	__host__ void PCR_solve(float* x_tmp);
+	__host__ void PCR_solve(TYPE_VAR* A1_tmp, TYPE_VAR* A2_tmp, TYPE_VAR* A3_tmp,
+		TYPE_VAR* b_tmp, TYPE_VAR* x_tmp);
+	__host__ void PCR_solve(TYPE_VAR* x_tmp);
 
 	/* Accessors */
-	__host__ float* A1_arr();
-	__host__ float* A2_arr();
-	__host__ float* A3_arr();
-	__host__ float* B_arr();
+	__host__ TYPE_VAR* A1_arr();
+	__host__ TYPE_VAR* A2_arr();
+	__host__ TYPE_VAR* A3_arr();
+	__host__ TYPE_VAR* B_arr();
 
 	/* ADI direction reverse */
 	__host__ void ADI_flip(int N_tmp, int S_tmp);
 };
 
 /* Global solver function called from PCR Method PCR_solve(...) */
-__global__ void PCR_solver(float* A1, float* A2, float* A3, float* B,
+__global__ void PCR_solver(TYPE_VAR* A1, TYPE_VAR* A2, TYPE_VAR* A3, TYPE_VAR* B,
 	int N);
 
 /* Carries reduction on the system for a specified distance between equations (delta) */
-__device__ void PCR_reduce(float* A1, float* A2, float* A3, float* B,
+__device__ void PCR_reduce(TYPE_VAR* A1, TYPE_VAR* A2, TYPE_VAR* A3, TYPE_VAR* B,
 	int N, int chunks, int delta, int sys_offset);
 
 /* Solves the 1 unknown system (obsolete) */
-__device__ void PCR_solve_eqn(float* A2, float* B, int N, int chunks,
+__device__ void PCR_solve_eqn(TYPE_VAR* A2, TYPE_VAR* B, int N, int chunks,
 	int sys_offset);
 
 #endif /* PCR_H_ */
