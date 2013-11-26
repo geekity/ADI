@@ -62,8 +62,8 @@ ADI::~ADI() {
 __host__ void ADI::adi_solver(TYPE_VAR* d_phi, TYPE_VAR* d_rho) {
 	/**/
 	TYPE_VAR dt = 1.0;
-	TYPE_VAR dh1 = H;
-	TYPE_VAR dh2 = H;
+	TYPE_VAR dh1 = 1.0;
+	TYPE_VAR dh2 = 1.0;
 	bool accept = false;	/* bool to determine whether iteration was accepted */
 
 	/* finds the transpose of rho for building up of PCR solver RHS */
@@ -94,9 +94,9 @@ __host__ void ADI::adi_solver(TYPE_VAR* d_phi, TYPE_VAR* d_rho) {
 	check_return(cudaMemcpy(d_phi, h_phi_new, N*S*sizeof(TYPE_VAR), cudaMemcpyHostToDevice));
 	cudaDeviceSynchronize();
 
-	ADI_rescale<<<S, N>>>(d_phi, EPSILON0, N, S);
+/*	ADI_rescale<<<S, N>>>(d_phi, EPSILON0, N, S);
 	cudaDeviceSynchronize();
-	check_return(cudaGetLastError());
+	check_return(cudaGetLastError());*/
 }
 
 /* ADI class private methods */
@@ -174,7 +174,8 @@ bool ADI::check_err(TYPE_VAR* d_phi, TYPE_VAR* rho, TYPE_VAR* dt, bool* accept,
 
 	tp_top = sqrt(tp_top);
 	tp_bottom = sqrt(tp_bottom);
-	tp_u /= (EPSILON0*EPSILON0);
+	tp_u = sqrt(tp_u);
+//	tp_u /= (EPSILON0*EPSILON0);
 
 	assert(tp_top==tp_top);
 	assert(tp_bottom==tp_bottom);
@@ -436,7 +437,7 @@ void ADI_test(TYPE_VAR* phi, TYPE_VAR* rho, int N, int S, TYPE_VAR dh1, TYPE_VAR
 			dif2 += (i == S-1) ? 0 : phi[i*N+j+N];
 			dif2 /= (dh2*dh2);
 
-			rho[i*N+j] = rho[i*N+j]/EPSILON0 + dif1 + dif2;
+			rho[i*N+j] = rho[i*N+j] + dif1 + dif2;
 		}
 	}
 }
@@ -456,7 +457,7 @@ int main() {
 	TYPE_VAR rho[N*S];
 	for (int i = 0; i < N*S; i++) {
 		phi[i] = 1.0;
-		rho[i] = -EPSILON0;
+		rho[i] = -1.6e-4*(H*H)/EPSILON0;
 	}
 
 	TYPE_VAR* d_phi;
@@ -480,14 +481,14 @@ int main() {
 	}
 	cout << endl;
 
-	ADI_test(phi, rho, N, S, H, H);
+	ADI_test(phi, rho, N, S, 1.0, 1.0);
 	TYPE_VAR e_tot = 0.0;
 	for (int i = 0; i < S; i++) {
 		for (int j = 0; j < N; j++) {
 			e_tot += rho[i*N+j]*rho[i*N+j];
 		}
-
 	}
+	e_tot = sqrt(e_tot);
 	cout << "err: " << e_tot << endl;
 
 	cudaFree(d_phi);
