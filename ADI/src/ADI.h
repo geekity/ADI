@@ -36,6 +36,7 @@ class ADI {
 private:
 	int N;	/* # of equations */
 	int S;	/* # of systems of equations */
+	TYPE_VAR old_err;
 
 	PCR* pcr;		/* Parallel cyclic reduction solver*/
 

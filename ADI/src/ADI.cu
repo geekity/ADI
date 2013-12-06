@@ -24,8 +24,9 @@
 using namespace std;
 
 #define TESTING
-#define TOLL 1e-5
+#define TOLL 1e-4
 #define CHUNK_MAX 256
+//#define AN (-Q_E*DT/H*DT/H/2)
 
 /* ADI class public methods */
 
@@ -34,6 +35,7 @@ ADI::ADI(int N_tmp, int S_tmp) {
 	S = S_tmp;
 	N = N_tmp;
 	pcr = new PCR(N, S);
+	old_err = sqrt(-1);
 
 	h_phi_new = (TYPE_VAR*) safe_malloc(N*S*sizeof(TYPE_VAR));
 	h_arr = (TYPE_VAR*) safe_malloc(N*S*sizeof(TYPE_VAR));
@@ -158,7 +160,8 @@ void ADI::check_arrays() {
 /* Checks solution convergence and adjusts dt */
 bool ADI::check_err(TYPE_VAR* d_phi, TYPE_VAR* rho, TYPE_VAR* dt, bool* accept,
 	TYPE_VAR dh1, TYPE_VAR dh2) {
-	calc_dif_iter<<<S, N>>>(d_phi_new, d_phi, d_phi_bar, N, S);
+	check_return(cudaMemcpy(d_u, d_phi, N*S*sizeof(TYPE_VAR), cudaMemcpyDeviceToDevice));
+	calc_dif_iter<<<S, N>>>(d_phi_new, d_u, d_phi_bar, N, S);
 
 	cudaDeviceSynchronize();
 	check_return(cudaGetLastError());
@@ -166,20 +169,27 @@ bool ADI::check_err(TYPE_VAR* d_phi, TYPE_VAR* rho, TYPE_VAR* dt, bool* accept,
 	TYPE_VAR tp_top = my_reduction(d_phi_bar);
 	TYPE_VAR tp_bottom = my_reduction(d_phi_new);
 
-	check_return(cudaMemcpy(d_u, rho, N*S*sizeof(TYPE_VAR), cudaMemcpyDeviceToDevice));
-	check_return(cudaMemcpy(d_phi_new, h_phi_new, N*S*sizeof(TYPE_VAR), cudaMemcpyHostToDevice));
+//	check_return(cudaMemcpy(d_u, rho, N*S*sizeof(TYPE_VAR), cudaMemcpyDeviceToDevice));
+//	check_return(cudaMemcpy(d_phi_new, h_phi_new, N*S*sizeof(TYPE_VAR), cudaMemcpyHostToDevice));
 
-	ADI_converge<<<S, N>>>(d_phi_new, d_u, N, S, dh1, dh2);
+//	ADI_converge<<<S, N>>>(d_phi_new, d_u, N, S, dh1, dh2);
 	TYPE_VAR tp_u = my_reduction(d_u);
 
 	tp_top = sqrt(tp_top);
 	tp_bottom = sqrt(tp_bottom);
 	tp_u = sqrt(tp_u);
-//	tp_u /= (EPSILON0*EPSILON0);
 
 	assert(tp_top==tp_top);
 	assert(tp_bottom==tp_bottom);
 	assert(tp_u==tp_u);
+
+	if (tp_u == old_err) {
+		cout << "Error! You have exceeded the accuracy of the solver and caused an overflow!" << endl;
+		exit(1);
+	} else {
+		old_err = tp_u;
+	}
+
 	cout << "tp_u: " << tp_u << endl;
 
 	if (tp_u < TOLL) return false;
@@ -316,9 +326,11 @@ __global__ void calc_dif_iter(TYPE_VAR* phi_new, TYPE_VAR* phi_old, TYPE_VAR* ph
 	if (tid < N*S) {
 		phi_bar[tid] -= phi_new[tid];
 		phi_new[tid] -= phi_old[tid];
+		phi_old[tid] = (phi_old[tid] == 0.0) ? phi_new[tid] : phi_new[tid]/phi_old[tid];
 
 		phi_bar[tid] *= phi_bar[tid];
 		phi_new[tid] *= phi_new[tid];
+		phi_old[tid] *= phi_old[tid];
 	}
 }
 
@@ -449,15 +461,16 @@ void ADI_test(TYPE_VAR* phi, TYPE_VAR* rho, int N, int S, TYPE_VAR dh1, TYPE_VAR
 int main() {
 	cout << "Hello World!" << endl;
 
-	int N = 5;
-	int S = 5;
+	int N = 63;
+	int S = 63;
 	ADI* adi = new ADI(N, S);
 
 	TYPE_VAR phi[N*S];
 	TYPE_VAR rho[N*S];
 	for (int i = 0; i < N*S; i++) {
-		phi[i] = 1.0;
-		rho[i] = -1.6e-4*(H*H)/EPSILON0;
+		phi[i] = 0.0;
+		rho[i] = 1.6e-4*(H*H)/EPSILON0;
+//		rho[i] = 0;
 	}
 
 	TYPE_VAR* d_phi;
@@ -475,6 +488,7 @@ int main() {
 
 	for (int i = 0; i < S; i++) {
 		for (int j = 0; j < N; j++) {
+//			phi[i*N+j] *= Q_E*DENSITY/512*(H*H)/EPSILON0;
 			cout << phi[i*N+j] << " ";
 		}
 		cout << endl;

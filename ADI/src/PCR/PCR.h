@@ -22,7 +22,7 @@
 #ifndef PCR_H_
 #define PCR_H_
 
-#define TYPE_VAR float
+#define TYPE_VAR double
 
 class PCR {
 private:
