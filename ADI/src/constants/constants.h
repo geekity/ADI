@@ -39,8 +39,8 @@ using namespace std;
 #define DT (WPDT/OMEGA)
 
 /* Simulation size */
-#define N_ROWS 64
-#define N_COLS 64
+#define N_ROWS 128
+#define N_COLS 128
 #define N_CELLS (N_ROWS*N_COLS)
 #define N_PARTICLE 512
 #define N_SPECIE 2

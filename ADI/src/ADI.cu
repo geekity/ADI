@@ -194,7 +194,7 @@ bool ADI::check_err(TYPE_VAR* d_phi, TYPE_VAR* rho, TYPE_VAR* dt, bool* accept,
 
 	if (tp_u < TOLL) return false;
 
-	TYPE_VAR tp = tp_top/tp_bottom;
+	TYPE_VAR tp = (tp_bottom > 0.0) ? tp_top/tp_bottom : 1.0;
 	if (tp <= 0.05) {
 		*dt *= 4;
 		*accept = true;
@@ -234,9 +234,6 @@ void ADI::double_sweep(TYPE_VAR* phi_new, TYPE_VAR* rho, TYPE_VAR dt,
 	// solve the mesh system
 	pcr->PCR_solve(phi_new);
 
-	// transpose phi for setting up vector B for next sweep
-	transposes(phi_new);
-
 	/* system solved along horizontal */
 	pcr->ADI_flip(N, S);	// sets up PCR # of equations and # of systems
 
@@ -248,9 +245,6 @@ void ADI::double_sweep(TYPE_VAR* phi_new, TYPE_VAR* rho, TYPE_VAR dt,
 
 	// solve the mesh system
 	pcr->PCR_solve(phi_new);
-
-	// transpose phi to return to original orientation
-	transposes(phi_new);
 }
 
 /* transposes phi "in place" (not really in place, just a wrapper method) */
@@ -461,8 +455,8 @@ void ADI_test(TYPE_VAR* phi, TYPE_VAR* rho, int N, int S, TYPE_VAR dh1, TYPE_VAR
 int main() {
 	cout << "Hello World!" << endl;
 
-	int N = 63;
-	int S = 63;
+	int N = N_COLS-1;
+	int S = N_ROWS-1;
 	ADI* adi = new ADI(N, S);
 
 	TYPE_VAR phi[N*S];
